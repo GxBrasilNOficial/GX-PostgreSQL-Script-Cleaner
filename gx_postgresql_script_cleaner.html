@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>GX PostgreSQL Script Cleaner</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4; padding: 20px; min-height: 100vh; }
+  h1 { font-size: 1.1rem; color: #89b4fa; margin-bottom: 16px; letter-spacing: 0.5px; }
+  .row { display: flex; gap: 16px; }
+  .col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  label { font-size: 0.8rem; color: #a6adc8; text-transform: uppercase; letter-spacing: 0.5px; }
+  textarea {
+    flex: 1; min-height: 340px; background: #181825; color: #cdd6f4;
+    border: 1px solid #313244; border-radius: 8px; padding: 12px;
+    font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 0.82rem;
+    resize: vertical; outline: none; line-height: 1.5;
+  }
+  textarea:focus { border-color: #89b4fa; }
+  textarea[readonly] { color: #a6e3a1; background: #181825; }
+  .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+  button {
+    padding: 9px 22px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 0.88rem; font-weight: 600; transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  #btnClean { background: #89b4fa; color: #1e1e2e; }
+  #btnCopy  { background: #313244; color: #cdd6f4; }
+  #btnClear { background: #313244; color: #f38ba8; }
+  #status { font-size: 0.8rem; color: #a6e3a1; margin-top: 6px; min-height: 18px; }
+  .stats { font-size: 0.75rem; color: #6c7086; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>GX PostgreSQL Script Cleaner</h1>
+<div class="row">
+  <div class="col">
+    <label>Script Original (GeneXus)</label>
+    <textarea id="input" placeholder="Cole aqui o script SQL gerado pelo GeneXus..."></textarea>
+    <div class="stats" id="statsIn"></div>
+  </div>
+  <div class="col">
+    <label>Script Corrigido</label>
+    <textarea id="output" readonly placeholder="O script limpo aparecerá aqui..."></textarea>
+    <div class="stats" id="statsOut"></div>
+  </div>
+</div>
+<div class="btn-row">
+  <button id="btnClean" onclick="clean()">▶ Limpar Script</button>
+  <button id="btnCopy"  onclick="copy()">⧉ Copiar Resultado</button>
+  <button id="btnClear" onclick="clearAll()">✕ Limpar Tudo</button>
+</div>
+<div id="status"></div>
+
+<script>
+const input  = document.getElementById('input');
+const output = document.getElementById('output');
+const status = document.getElementById('status');
+const statsIn  = document.getElementById('statsIn');
+const statsOut = document.getElementById('statsOut');
+
+input.addEventListener('input', () => {
+  const t = input.value;
+  statsIn.textContent = t ? `${t.length} caracteres · ${t.split('\n').length} linhas` : '';
+});
+
+function clean() {
+  const raw = input.value;
+  if (!raw.trim()) { setStatus('Cole um script antes.', '#f38ba8'); return; }
+
+  let s = raw;
+
+  // 1. Substitui espaços não-quebráveis e outros espaços Unicode por espaço normal
+  s = s.replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ');
+
+  // 2. Remove BOM
+  s = s.replace(/^\uFEFF/, '');
+
+  // 3. Normaliza quebras de linha
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // 4. Remove espaços no final de cada linha
+  s = s.split('\n').map(l => l.trimEnd()).join('\n');
+
+  // 5. Colapsa múltiplos espaços internos em um só
+  //    (preserva indentação no início da linha)
+  s = s.split('\n').map(l => {
+    const indent = l.match(/^(\s*)/)[1];
+    const rest   = l.trimStart().replace(/  +/g, ' ');
+    return indent + rest;
+  }).join('\n');
+
+  // 6. Remove linhas em branco múltiplas consecutivas (deixa no máximo 1)
+  s = s.replace(/\n{3,}/g, '\n\n');
+
+  // 7. Remove espaço antes de vírgula e parêntese de fechamento
+  s = s.replace(/ ,/g, ',');
+  s = s.replace(/ \)/g, ')');
+
+  // 8. Garante ponto e vírgula no final de cada instrução SQL
+  // Identifica fins de instrução: linhas que terminam com ) ou com palavra-chave de encerramento
+  const lines = s.split('\n');
+  const result = [];
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    const trimmed = line.trimEnd();
+    const next = (lines[i+1] || '').trim();
+    // Linha encerra instrução se termina com ) e a próxima é vazia ou nova instrução
+    const endsBlock = /\)$/.test(trimmed);
+    const nextIsNewStatement = /^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT|REVOKE|COMMENT)/i.test(next) || next === '';
+    if (endsBlock && nextIsNewStatement && !trimmed.endsWith(';')) {
+      line = trimmed + ';';
+    }
+    result.push(line);
+  }
+  s = result.join('\n');
+
+  output.value = s.trim();
+
+  const fixes = countFixes(raw, s);
+  statsOut.textContent = `${s.length} caracteres · ${s.split('\n').length} linhas`;
+  setStatus(`✔ Concluído. ${fixes} substituição(ões) realizada(s).`, '#a6e3a1');
+}
+
+function countFixes(original, cleaned) {
+  let count = 0;
+  for (let i = 0; i < Math.min(original.length, cleaned.length); i++) {
+    if (original[i] !== cleaned[i]) count++;
+  }
+  count += Math.abs(original.length - cleaned.length);
+  return count;
+}
+
+function copy() {
+  if (!output.value) { setStatus('Nada para copiar.', '#f38ba8'); return; }
+  navigator.clipboard.writeText(output.value)
+    .then(() => setStatus('✔ Copiado para a área de transferência!', '#a6e3a1'))
+    .catch(() => { output.select(); document.execCommand('copy'); setStatus('✔ Copiado!', '#a6e3a1'); });
+}
+
+function clearAll() {
+  input.value = output.value = '';
+  statsIn.textContent = statsOut.textContent = '';
+  setStatus('', '');
+}
+
+function setStatus(msg, color) {
+  status.textContent = msg;
+  status.style.color = color;
+}
+</script>
+</body>
+</html>
