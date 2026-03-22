@@ -98,17 +98,19 @@ function clean() {
   s = s.replace(/ \)/g, ')');
 
   // 8. Garante ponto e vírgula no final de cada instrução SQL
-  // Identifica fins de instrução: linhas que terminam com ) ou com palavra-chave de encerramento
+  const kwRegex = /^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT|REVOKE|COMMENT|TRUNCATE|SELECT)\b/i;
+  // Linha que é apenas abertura de instrução (ainda não tem corpo na mesma linha)
+  const isOpenerOnly = /^(CREATE|ALTER|DROP)\s+\w+\s+\w+\s*$/i;
   const lines = s.split('\n');
   const result = [];
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
     const trimmed = line.trimEnd();
+    if (!trimmed || trimmed.startsWith('--')) { result.push(line); continue; }
     const next = (lines[i+1] || '').trim();
-    // Linha encerra instrução se termina com ) e a próxima é vazia ou nova instrução
-    const endsBlock = /\)$/.test(trimmed);
-    const nextIsNewStatement = /^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT|REVOKE|COMMENT)/i.test(next) || next === '';
-    if (endsBlock && nextIsNewStatement && !trimmed.endsWith(';')) {
+    const nextIsNewStatement = kwRegex.test(next) || next === '';
+    const isOpener = isOpenerOnly.test(trimmed);
+    if (nextIsNewStatement && !isOpener && !trimmed.endsWith(';') && !trimmed.endsWith(',')) {
       line = trimmed + ';';
     }
     result.push(line);
