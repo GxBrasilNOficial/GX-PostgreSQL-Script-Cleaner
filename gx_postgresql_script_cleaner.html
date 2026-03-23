@@ -93,6 +93,12 @@ function clean() {
   // 6. Remove linhas em branco múltiplas consecutivas (deixa no máximo 1)
   s = s.replace(/\n{3,}/g, '\n\n');
 
+  // 6b. Garante linha em branco antes de cada instrução SQL (para leitura humana)
+  s = s.replace(/\n(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT|REVOKE|COMMENT|TRUNCATE|SELECT)\b/gi, '\n\n$1');
+  // Remove duplas ou mais linhas em branco geradas pelo passo acima
+  s = s.replace(/\n{3,}/g, '\n\n');
+  s = s.replace(/^\n+/, ''); // remove linha em branco no início
+
   // 7. Remove espaço antes de vírgula e parêntese de fechamento
   s = s.replace(/ ,/g, ',');
   s = s.replace(/ \)/g, ')');
